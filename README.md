@@ -143,6 +143,40 @@ ocr viewer
 ocr viewer --addr :3000
 ```
 
+## Review Rules
+
+OCR resolves review rules using a four-layer priority chain. Each layer uses first-match-wins: if a file path matches a pattern, that rule is used; otherwise it falls through to the next layer.
+
+| Priority | Source | Path | Description |
+|----------|--------|------|-------------|
+| 1 (highest) | `--rule` flag | User-specified path | CLI explicit override |
+| 2 | Project config | `<repoDir>/.open-code-review/rule.json` | Per-project rules, can be committed to git |
+| 3 | Global config | `~/.open-code-review/rule.json` | User-wide personal preferences |
+| 4 (lowest) | System default | Embedded `system_rules.json` | Built-in rules covering common languages and file types |
+
+### Rule File Format
+
+Layers 1–3 share the same JSON format:
+
+```json
+{
+  "rules": [
+    {
+      "path": "force-api/**/*.java",
+      "rule": "All new methods must validate required parameters for null values"
+    },
+    {
+      "path": "**/*mapper*.xml",
+      "rule": "Check SQL for injection risks, parameter errors, and missing closing tags"
+    }
+  ]
+}
+```
+
+- `path` supports `**` recursive matching and `{java,kt}` brace expansion.
+- Within each layer, rules are evaluated in declaration order — the first match wins.
+- If a rule file does not exist, it is silently skipped.
+
 ## Architecture
 
 The review agent follows a **three-phase workflow**:

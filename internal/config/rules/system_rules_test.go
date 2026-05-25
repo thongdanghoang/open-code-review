@@ -1,6 +1,8 @@
 package rules
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -171,4 +173,199 @@ func truncate(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "..."
+}
+
+func TestNewResolver_DefaultOnly(t *testing.T) {
+	resolver, err := NewResolver(t.TempDir(), "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+	got := resolver.Resolve("src/main.java")
+	if !strings.Contains(got, "逻辑错误识别") {
+		t.Errorf("expected system default java rule, got %q", truncate(got, 80))
+	}
+}
+
+func TestNewResolver_ProjectFileMissing(t *testing.T) {
+	resolver, err := NewResolver(t.TempDir(), "")
+	if err != nil {
+		t.Fatalf("NewResolver should not fail when project rule is missing: %v", err)
+	}
+	got := resolver.Resolve("readme.md")
+	if got == "" {
+		t.Errorf("expected non-empty default rule")
+	}
+}
+
+func TestNewResolver_ProjectRuleHighestPriority(t *testing.T) {
+	dir := t.TempDir()
+	ocrDir := filepath.Join(dir, ".open-code-review")
+	if err := os.MkdirAll(ocrDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	ruleJSON := `{"rules":[{"path":"force-api/**/*.java","rule":"project-java-rule"}]}`
+	if err := os.WriteFile(filepath.Join(ocrDir, "rule.json"), []byte(ruleJSON), 0o644); err != nil {
+		t.Fatalf("write rule.json: %v", err)
+	}
+
+	resolver, err := NewResolver(dir, "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+
+	tests := []struct {
+		path string
+		want string
+	}{
+		{"force-api/src/foo.java", "project-java-rule"},
+		{"other/src/bar.java", "逻辑错误识别"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			got := resolver.Resolve(tt.path)
+			if !strings.Contains(got, tt.want) {
+				t.Errorf("Resolve(%q) = %q, want containing %q", tt.path, truncate(got, 80), tt.want)
+			}
+		})
+	}
+}
+
+func TestNewResolver_ProjectRuleFallsBackToSystem(t *testing.T) {
+	dir := t.TempDir()
+	ocrDir := filepath.Join(dir, ".open-code-review")
+	if err := os.MkdirAll(ocrDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	ruleJSON := `{"rules":[{"path":"special/**/*.go","rule":"special-go-rule"}]}`
+	if err := os.WriteFile(filepath.Join(ocrDir, "rule.json"), []byte(ruleJSON), 0o644); err != nil {
+		t.Fatalf("write rule.json: %v", err)
+	}
+
+	resolver, err := NewResolver(dir, "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+
+	got := resolver.Resolve("other/main.go")
+	if !strings.Contains(got, "逻辑问题") {
+		t.Errorf("expected system go rule, got %q", truncate(got, 80))
+	}
+}
+
+func TestNewResolver_CustomRuleOverridesDefault(t *testing.T) {
+	dir := t.TempDir()
+	customRule := `{"rules":[{"path":"**/*.go","rule":"custom-go-rule"}]}`
+	customPath := filepath.Join(dir, "custom_rules.json")
+	if err := os.WriteFile(customPath, []byte(customRule), 0o644); err != nil {
+		t.Fatalf("write custom rule: %v", err)
+	}
+
+	resolver, err := NewResolver(t.TempDir(), customPath)
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+
+	got := resolver.Resolve("main.go")
+	if got != "custom-go-rule" {
+		t.Errorf("expected custom-go-rule, got %q", got)
+	}
+	// --rule not matched → falls through to system default
+	got = resolver.Resolve("readme.md")
+	if !strings.Contains(got, "错别字") {
+		t.Errorf("expected system default rule, got %q", truncate(got, 80))
+	}
+}
+
+func TestNewResolver_CustomOverridesProject(t *testing.T) {
+	// Setup --rule file (highest priority)
+	customDir := t.TempDir()
+	customRule := `{"rules":[{"path":"**/*.java","rule":"custom-java-rule"}]}`
+	customPath := filepath.Join(customDir, "custom_rules.json")
+	if err := os.WriteFile(customPath, []byte(customRule), 0o644); err != nil {
+		t.Fatalf("write custom rule: %v", err)
+	}
+
+	// Setup project rule with narrower pattern
+	repoDir := t.TempDir()
+	ocrDir := filepath.Join(repoDir, ".open-code-review")
+	if err := os.MkdirAll(ocrDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	projRule := `{"rules":[{"path":"force-api/**/*.java","rule":"project-java-rule"},{"path":"**/*.go","rule":"project-go-rule"}]}`
+	if err := os.WriteFile(filepath.Join(ocrDir, "rule.json"), []byte(projRule), 0o644); err != nil {
+		t.Fatalf("write rule.json: %v", err)
+	}
+
+	resolver, err := NewResolver(repoDir, customPath)
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+
+	tests := []struct {
+		path string
+		want string
+	}{
+		{"force-api/src/foo.java", "custom-java-rule"}, // --rule wins (highest priority)
+		{"other/src/bar.java", "custom-java-rule"},     // --rule wins
+		{"main.go", "project-go-rule"},                 // --rule misses → project wins
+		{"readme.md", "错别字"},                           // all miss → system default
+	}
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			got := resolver.Resolve(tt.path)
+			if !strings.Contains(got, tt.want) {
+				t.Errorf("Resolve(%q) = %q, want containing %q", tt.path, truncate(got, 80), tt.want)
+			}
+		})
+	}
+}
+
+func TestNewResolver_ProjectFileMalformed(t *testing.T) {
+	dir := t.TempDir()
+	ocrDir := filepath.Join(dir, ".open-code-review")
+	if err := os.MkdirAll(ocrDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(ocrDir, "rule.json"), []byte("{invalid json"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	_, err := NewResolver(dir, "")
+	if err == nil {
+		t.Errorf("expected error for malformed project rule.json")
+	}
+}
+
+func TestNewResolver_BraceExpansionInProjectRule(t *testing.T) {
+	dir := t.TempDir()
+	ocrDir := filepath.Join(dir, ".open-code-review")
+	if err := os.MkdirAll(ocrDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	ruleJSON := `{"rules":[{"path":"src/**/*.{java,kt}","rule":"jvm-rule"}]}`
+	if err := os.WriteFile(filepath.Join(ocrDir, "rule.json"), []byte(ruleJSON), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	resolver, err := NewResolver(dir, "")
+	if err != nil {
+		t.Fatalf("NewResolver: %v", err)
+	}
+
+	tests := []struct {
+		path string
+		want string
+	}{
+		{"src/main/foo.java", "jvm-rule"},
+		{"src/main/bar.kt", "jvm-rule"},
+		{"src/main/baz.go", "逻辑问题"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			got := resolver.Resolve(tt.path)
+			if !strings.Contains(got, tt.want) {
+				t.Errorf("Resolve(%q) = %q, want containing %q", tt.path, truncate(got, 80), tt.want)
+			}
+		})
+	}
 }

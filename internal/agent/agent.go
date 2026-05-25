@@ -39,7 +39,7 @@ type Args struct {
 	Template template.Template
 
 	// SystemRule holds path-based review rules loaded from a JSON config.
-	SystemRule *rules.SystemRule
+	SystemRule rules.Resolver
 
 	// LLM client for model inference.
 	LLMClient llm.LLMClient

@@ -6,10 +6,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/bmatcuk/doublestar/v4"
 )
+
+// Resolver resolves a review rule for a file path.
+type Resolver interface {
+	Resolve(path string) string
+}
 
 // PathRule is a single pattern→rule entry preserving declaration order.
 type PathRule struct {
@@ -86,19 +92,6 @@ func LoadDefault() (*SystemRule, error) {
 	return &rule, nil
 }
 
-// LoadFile parses a system_rules.json file from disk.
-func LoadFile(path string) (*SystemRule, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("read rule file %s: %w", path, err)
-	}
-	var rule SystemRule
-	if err := json.Unmarshal(data, &rule); err != nil {
-		return nil, fmt.Errorf("unmarshal rule file: %w", err)
-	}
-	return &rule, nil
-}
-
 // Resolve returns the rule text for a given file path.
 // Patterns with brace expansion like "*.{go,py}" are expanded into "*.go", "*.py".
 // The first match wins; if none match, it falls back to DefaultRule.
@@ -139,4 +132,137 @@ func expandBraces(s string) []string {
 		results = append(results, prefix+opt+suffix)
 	}
 	return results
+}
+
+// ProjectRuleEntry is a single entry in .open-code-review/rule.json.
+type ProjectRuleEntry struct {
+	Path string `json:"path"`
+	Rule string `json:"rule"`
+}
+
+// ProjectRule holds rules loaded from <repoDir>/.open-code-review/rule.json.
+type ProjectRule struct {
+	Rules []ProjectRuleEntry `json:"rules"`
+}
+
+// composedResolver implements Resolver with layered priority.
+type composedResolver struct {
+	custom  *ProjectRule // highest: --rule flag
+	project *ProjectRule // high: .open-code-review/rule.json
+	global  *ProjectRule // low: ~/.open-code-review/rule.json
+	system  *SystemRule  // lowest: embedded default
+}
+
+// NewResolver builds a Resolver with the following priority:
+//  1. Custom rule file specified via --rule flag (first match wins)
+//  2. Project-local .open-code-review/rule.json (first match wins)
+//  3. Global ~/.open-code-review/rule.json (first match wins)
+//  4. Embedded system default rules
+func NewResolver(repoDir, customRulePath string) (Resolver, error) {
+	sysRule, err := LoadDefault()
+	if err != nil {
+		return nil, err
+	}
+
+	var customRule *ProjectRule
+	if customRulePath != "" {
+		cr, err := loadRuleFile(customRulePath)
+		if err != nil {
+			return nil, err
+		}
+		customRule = cr
+	}
+
+	var projectRule *ProjectRule
+	if repoDir != "" {
+		pr, err := loadProjectRule(repoDir)
+		if err != nil {
+			return nil, err
+		}
+		projectRule = pr
+	}
+
+	globalRule, err := loadGlobalRule()
+	if err != nil {
+		return nil, err
+	}
+
+	return &composedResolver{custom: customRule, project: projectRule, global: globalRule, system: sysRule}, nil
+}
+
+func loadGlobalRule() (*ProjectRule, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, nil
+	}
+	path := filepath.Join(home, ".open-code-review", "rule.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read global rule %s: %w", path, err)
+	}
+	var pr ProjectRule
+	if err := json.Unmarshal(data, &pr); err != nil {
+		return nil, fmt.Errorf("unmarshal global rule: %w", err)
+	}
+	return &pr, nil
+}
+
+func loadRuleFile(path string) (*ProjectRule, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read rule file %s: %w", path, err)
+	}
+	var pr ProjectRule
+	if err := json.Unmarshal(data, &pr); err != nil {
+		return nil, fmt.Errorf("unmarshal rule file %s: %w", path, err)
+	}
+	return &pr, nil
+}
+
+func loadProjectRule(repoDir string) (*ProjectRule, error) {
+	path := filepath.Join(repoDir, ".open-code-review", "rule.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read project rule %s: %w", path, err)
+	}
+	var pr ProjectRule
+	if err := json.Unmarshal(data, &pr); err != nil {
+		return nil, fmt.Errorf("unmarshal project rule: %w", err)
+	}
+	return &pr, nil
+}
+
+// Resolve checks each layer in priority order; first match wins.
+func (c *composedResolver) Resolve(path string) string {
+	if rule := matchProjectRule(c.custom, path); rule != "" {
+		return rule
+	}
+	if rule := matchProjectRule(c.project, path); rule != "" {
+		return rule
+	}
+	if rule := matchProjectRule(c.global, path); rule != "" {
+		return rule
+	}
+	return c.system.Resolve(path)
+}
+
+func matchProjectRule(pr *ProjectRule, path string) string {
+	if pr == nil {
+		return ""
+	}
+	for _, entry := range pr.Rules {
+		expanded := expandBraces(entry.Path)
+		for _, p := range expanded {
+			if matched, _ := doublestar.Match(p, path); matched {
+				return entry.Rule
+			}
+		}
+	}
+	return ""
 }

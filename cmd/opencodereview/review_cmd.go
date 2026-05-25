@@ -40,15 +40,14 @@ func runReview(args []string) error {
 		return fmt.Errorf("invalid config: %w", err)
 	}
 
-	sysRule, err := rules.LoadDefault()
+	repoDir, err := resolveRepoDir(opts.repoDir)
 	if err != nil {
-		return fmt.Errorf("load default system rule: %w", err)
+		return fmt.Errorf("resolve repo: %w", err)
 	}
-	if opts.rulePath != "" {
-		sysRule, err = loadSystemRule(opts.rulePath)
-		if err != nil {
-			return fmt.Errorf("load system rule: %w", err)
-		}
+
+	resolver, err := rules.NewResolver(repoDir, opts.rulePath)
+	if err != nil {
+		return fmt.Errorf("load rules: %w", err)
 	}
 
 	toolEntries, err := toolsconfig.Load(opts.toolConfigPath)
@@ -57,11 +56,6 @@ func runReview(args []string) error {
 	}
 	planToolDefs := agent.BuildToolDefs(toolEntries, true)
 	mainToolDefs := agent.BuildToolDefs(toolEntries, false)
-
-	repoDir, err := resolveRepoDir(opts.repoDir)
-	if err != nil {
-		return fmt.Errorf("resolve repo: %w", err)
-	}
 
 	appCfg, err := LoadAppConfig(defaultConfigPath())
 	if err != nil {
@@ -97,7 +91,7 @@ func runReview(args []string) error {
 		Commit:                opts.commit,
 		DiffMap:               diffMap,
 		Template:              *tpl,
-		SystemRule:            sysRule,
+		SystemRule:            resolver,
 		LLMClient:             llmClient,
 		Tools:                 tools,
 		PlanToolDefs:          planToolDefs,
@@ -164,10 +158,6 @@ func runReview(args []string) error {
 	outputTextWithWarnings(comments, ag.Warnings())
 
 	return nil
-}
-
-func loadSystemRule(path string) (*rules.SystemRule, error) {
-	return rules.LoadFile(path)
 }
 
 func resolveRepoDir(input string) (string, error) {
