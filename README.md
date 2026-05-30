@@ -145,90 +145,52 @@ ocr review --from main --to feature-branch
 ocr review --commit abc123
 ```
 
-### Integrate with Your Coding Agent
+### Integrate with Coding Agents
 
-OCR is designed to work seamlessly with coding agents. Use the `--audience agent` flag to produce structured, machine-readable output optimized for agent consumption.
+OCR can be seamlessly integrated into AI coding agents as a slash command, enabling code review directly within your agent workflow.
 
-#### Claude Code
+#### Option 1: Install as a Skill
 
-OCR provides a ready-to-use [Claude Code slash command](https://docs.anthropic.com/en/docs/claude-code/slash-commands). Create the following file in your project:
-
-`.claude/commands/open-code-review.md`:
-
-~~~markdown
-# /open-code-review
-
-Invoke the professional code review Agent CLI tool OpenCodeReview (OCR) to review current code changes, and let the Agent autonomously decide whether to apply fixes.
-
-## Workflow
-
-### Step 1: Run Code Review
-
-Run the OCR command:
+Use `npx` to install the OCR skill into your project:
 
 ```bash
-ocr review --audience agent [user-args]
-```
-- Default (no user arguments): reviews staged, unstaged, and untracked changes (workspace mode).
-- If the user provides `--commit` or `--c`: pass through as-is.
-- If the user provides `--from` and `--to`: pass through as-is.
-- (Optional) Provide `--background "requirement context"` to review whether the requirements are correctly implemented.
-- Capture full stdout. Set a 5-minute timeout.
-- If the `ocr` command is not found, install it by running `npm i -g @alibaba-group/open-code-review`.
-
-### Step 2: Filter and Evaluate
-
-For each comment, assess its validity and quality:
-
-- **High**: Obvious bugs, security issues, clear mistakes, or well-founded suggestions with precise fix proposals
-- **Medium**: Reasonable concerns but context-dependent, style/performance suggestions, or fixes that require manual implementation
-- **Low**: Likely false positives, lacking sufficient context, nitpicks, or meaningless suggestions
-
-Silently discard low-confidence comments. Display the remaining comments.
-
-### Step 3: Fix
-
-Automatically fix issues and suggestions that are worth adopting.
-~~~
-
-Then use `/open-code-review` in Claude Code to run a review. The slash command will run OCR, filter and evaluate each comment, and automatically fix issues worth adopting.
-
-#### Cursor / Windsurf
-
-Add the following instruction to your `.cursorrules` or `.windsurfrules` file:
-
-```
-## Code Review
-
-When asked to review code, run the following command:
-
-ocr review --audience agent
-
-Parse the output and evaluate each comment by confidence level:
-- High: Obvious bugs, security issues, clear mistakes — fix these automatically.
-- Medium: Reasonable concerns — present to the user for decision.
-- Low: Likely false positives or nitpicks — silently discard.
-
-If the `ocr` command is not found, install it: npm i -g @alibaba-group/open-code-review
+npx skills add alibaba/open-code-review --skill open-code-review
 ```
 
-#### Other Coding Agents
+This installs the `open-code-review` skill from the [skills registry](skills/open-code-review/SKILL.md), which teaches your coding agent how to invoke `ocr` for code review, classify issues by priority, and optionally apply fixes.
 
-Any coding agent that can execute shell commands can integrate with OCR:
+#### Option 2: Install as a Claude Code Plugin
+
+For [Claude Code](https://docs.anthropic.com/en/docs/claude-code), install the command plugin through the following command in Claude Code:
 
 ```bash
-# Machine-readable output for agent consumption
-ocr review --audience agent
-
-# With requirement context for targeted review
-ocr review --audience agent --background "describe what the changes should do"
-
-# Review specific commit or branch range
-ocr review --audience agent --commit abc123
-ocr review --audience agent --from main --to feature-branch
+/plugin marketplace add alibaba/open-code-review
+/plugin install open-code-review@open-code-review
 ```
 
-The `--audience agent` flag suppresses progress UI and outputs a concise structured summary. The `--background` flag provides requirement context so OCR can verify whether the implementation matches intent.
+This registers the `/open-code-review:review` slash command, which runs OCR and automatically filters and fixes issues.
+
+#### Option 3: Copy the Command File Directly
+
+For a quick setup without any package manager, simply copy the command file to use the `/open-code-review` slash command in Claude Code.
+
+**Project-level** (shared with team via git):
+
+```bash
+mkdir -p .claude/commands
+curl -o .claude/commands/open-code-review.md \
+  https://raw.githubusercontent.com/alibaba/open-code-review/main/plugins/open-code-review/commands/review.md
+```
+
+**User-level** (personal global use across all projects):
+
+```bash
+mkdir -p ~/.claude/commands
+curl -o ~/.claude/commands/open-code-review.md \
+  https://raw.githubusercontent.com/alibaba/open-code-review/main/plugins/open-code-review/commands/review.md
+```
+
+> **Prerequisite**: All integration methods require the `ocr` CLI to be installed and an LLM configured. See [Install](#install) and [Configure LLM](#1-configure-llm) above.
 
 ## Commands
 
@@ -346,16 +308,6 @@ Environment variables take precedence over the config file.
 | `OCR_LLM_MODEL` | Model name |
 | `OCR_USE_ANTHROPIC` | `true` = Anthropic, `false` = OpenAI |
 
-### Template Parameters
-
-Internal defaults defined in `internal/config/template/task_template.json`:
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `MAX_TOKENS` | 58888 | Max tokens per LLM request |
-| `MAX_TOOL_REQUEST_TIMES` | 20 | Max tool-use iterations per file |
-| `PLAN_MODE_LINE_THRESHOLD` | 50 | Skip plan phase below this line count |
-| `TOOL_REQUEST_WAIT_TIME_MS` | 10000 | Per-tool-request timeout |
 
 ## Telemetry
 
@@ -369,62 +321,9 @@ ocr config set telemetry.otlp_endpoint localhost:4317
 
 Set `telemetry.content_logging` to include LLM prompts and responses in exported data.
 
-## Development
+## Contributing
 
-```bash
-make build      # Build for current platform
-make test       # Run tests with race detection
-make clean      # Remove dist/
-make build-all  # Cross-compile (linux/amd64, linux/arm64, darwin/amd64, darwin/arm64)
-make dist       # Full release pipeline
-```
-
-## Integration into Coding Agents
-
-OCR can be seamlessly integrated into AI coding agents as a slash command, enabling code review directly within your agent workflow.
-
-### Option 1: Install as a Skill
-
-Use `npx` to install the OCR skill into your project:
-
-```bash
-npx skills add alibaba/open-code-review --skill open-code-review
-```
-
-This installs the `open-code-review` skill from the [skills registry](skills/open-code-review/SKILL.md), which teaches your coding agent how to invoke `ocr` for code review, classify issues by priority, and optionally apply fixes.
-
-### Option 2: Install as a Claude Code Plugin
-
-For [Claude Code](https://docs.anthropic.com/en/docs/claude-code), install the command plugin through the following command in Claude Code:
-
-```bash
-/plugin marketplace add alibaba/open-code-review
-/plugin install open-code-review@open-code-review
-```
-
-This registers the `/open-code-review:review` slash command, which runs OCR and automatically filters and fixes issues.
-
-### Option 3: Copy the Command File Directly
-
-For a quick setup without any package manager, simply copy the command file to use the `/open-code-review` slash command in Claude Code.
-
-**Project-level** (shared with team via git):
-
-```bash
-mkdir -p .claude/commands
-curl -o .claude/commands/open-code-review.md \
-  https://raw.githubusercontent.com/alibaba/open-code-review/main/plugins/open-code-review/commands/review.md
-```
-
-**User-level** (personal global use across all projects):
-
-```bash
-mkdir -p ~/.claude/commands
-curl -o ~/.claude/commands/open-code-review.md \
-  https://raw.githubusercontent.com/alibaba/open-code-review/main/plugins/open-code-review/commands/review.md
-```
-
-> **Prerequisite**: All integration methods require the `ocr` CLI to be installed and an LLM configured. See [Install](#install) and [Configure LLM](#1-configure-llm) above.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, coding guidelines, and how to submit pull requests.
 
 ## License
 
