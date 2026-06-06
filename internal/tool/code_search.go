@@ -80,6 +80,14 @@ func (p *CodeSearchProvider) runGitGrep(parentCtx context.Context, cmdArgs []str
 	ctx, cancel := context.WithTimeout(parentCtx, gitGrepTimeout)
 	defer cancel()
 
+	if p.FileReader.Runner != nil {
+		stdout, stderr, err := p.FileReader.Runner.RunSplit(ctx, p.FileReader.RepoDir, cmdArgs...)
+		if ctx.Err() != nil && err != nil {
+			return "", "", ctx.Err()
+		}
+		return stdout, stderr, err
+	}
+
 	cmd := exec.CommandContext(ctx, "git", cmdArgs...)
 	cmd.Dir = p.FileReader.RepoDir
 

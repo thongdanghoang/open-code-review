@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"time"
+
+	"github.com/open-code-review/open-code-review/internal/gitcmd"
 )
 
 // ReviewMode represents the active review mode.
@@ -51,7 +53,8 @@ type FileReader struct {
 	Mode    ReviewMode
 	// Ref is the git ref to use for ModeRange (--to) or ModeCommit (--commit).
 	// Empty for ModeWorkspace.
-	Ref string
+	Ref    string
+	Runner *gitcmd.Runner
 }
 
 // Read returns the full content of a file path (relative to RepoDir),
@@ -82,7 +85,16 @@ func (fr *FileReader) readFromGitShow(parentCtx context.Context, path string) (s
 	ctx, cancel := context.WithTimeout(parentCtx, 30*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "git", "-c", "core.quotepath=false", "show", fr.Ref+":"+path)
+	args := []string{"-c", "core.quotepath=false", "show", fr.Ref + ":" + path}
+	if fr.Runner != nil {
+		output, err := fr.Runner.Output(ctx, fr.RepoDir, args...)
+		if err != nil {
+			return "", fmt.Errorf("git show %s:%s: %w", fr.Ref, path, err)
+		}
+		return string(output), nil
+	}
+
+	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = fr.RepoDir
 	output, err := cmd.Output()
 	if err != nil {

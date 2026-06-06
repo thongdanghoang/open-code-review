@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"fmt"
 
 	allowedext "github.com/open-code-review/open-code-review/internal/config/allowlist"
@@ -71,8 +72,8 @@ func (a *Agent) whyExcluded(d model.Diff) ExcludeReason {
 
 // Preview loads diffs and applies the filter algorithm, returning structured
 // preview data without dispatching any LLM calls.
-func (a *Agent) Preview() (*DiffPreview, error) {
-	if err := a.loadDiffs(); err != nil {
+func (a *Agent) Preview(ctx context.Context) (*DiffPreview, error) {
+	if err := a.loadDiffs(ctx); err != nil {
 		return nil, fmt.Errorf("load diffs: %w", err)
 	}
 

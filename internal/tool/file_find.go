@@ -67,14 +67,24 @@ func (p *FileFindProvider) listGitFiles(parentCtx context.Context) ([]string, er
 	ctx, cancel := context.WithTimeout(parentCtx, fileFindTimeout)
 	defer cancel()
 
-	var cmd *exec.Cmd
+	var output []byte
+	var err error
+
+	var args []string
 	if ref := p.FileReader.Ref; ref != "" {
-		cmd = exec.CommandContext(ctx, "git", "ls-tree", "-r", "--name-only", ref)
+		args = []string{"ls-tree", "-r", "--name-only", ref}
 	} else {
-		cmd = exec.CommandContext(ctx, "git", "ls-files", "--cached", "--others", "--exclude-standard")
+		args = []string{"ls-files", "--cached", "--others", "--exclude-standard"}
 	}
-	cmd.Dir = p.FileReader.RepoDir
-	output, err := cmd.Output()
+
+	if p.FileReader.Runner != nil {
+		output, err = p.FileReader.Runner.Output(ctx, p.FileReader.RepoDir, args...)
+	} else {
+		cmd := exec.CommandContext(ctx, "git", args...)
+		cmd.Dir = p.FileReader.RepoDir
+		output, err = cmd.Output()
+	}
+
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()

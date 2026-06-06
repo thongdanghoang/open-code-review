@@ -12,6 +12,7 @@ import (
 	"github.com/open-code-review/open-code-review/internal/config/template"
 	"github.com/open-code-review/open-code-review/internal/config/toolsconfig"
 	"github.com/open-code-review/open-code-review/internal/diff"
+	"github.com/open-code-review/open-code-review/internal/gitcmd"
 	"github.com/open-code-review/open-code-review/internal/llm"
 	"github.com/open-code-review/open-code-review/internal/stdout"
 	"github.com/open-code-review/open-code-review/internal/telemetry"
@@ -91,6 +92,8 @@ func runReview(args []string) error {
 	llmClient := llm.NewLLMClient(ep)
 	model := ep.Model
 
+	gitRunner := gitcmd.New(opts.maxGitProcs)
+
 	collector := tool.NewCommentCollector()
 	mode := tool.ParseReviewMode(opts.from, opts.to, opts.commit)
 	ref, _ := mode.RefValue(opts.to, opts.commit)
@@ -98,6 +101,7 @@ func runReview(args []string) error {
 		RepoDir: repoDir,
 		Mode:    mode,
 		Ref:     ref,
+		Runner:  gitRunner,
 	}
 	tools := buildToolRegistry(collector, fileReader)
 
@@ -119,6 +123,7 @@ func runReview(args []string) error {
 		ConcurrentTaskTimeout: opts.perFileTimeout,
 		Model:                 model,
 		Background:            opts.background,
+		GitRunner:             gitRunner,
 	})
 
 	// Silence progress output during execution; restore before Summary in agent mode.
@@ -212,15 +217,17 @@ func requireGitRepo(dir string) error {
 }
 
 func runPreview(repoDir string, opts reviewOptions, fileFilter *rules.FileFilter) error {
+	gitRunner := gitcmd.New(opts.maxGitProcs)
 	ag := agent.New(agent.Args{
 		RepoDir:    repoDir,
 		From:       opts.from,
 		To:         opts.to,
 		Commit:     opts.commit,
 		FileFilter: fileFilter,
+		GitRunner:  gitRunner,
 	})
 
-	preview, err := ag.Preview()
+	preview, err := ag.Preview(context.Background())
 	if err != nil {
 		return fmt.Errorf("preview failed: %w", err)
 	}

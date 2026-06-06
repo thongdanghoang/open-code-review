@@ -106,6 +106,7 @@ type reviewOptions struct {
 	concurrency    int
 	perFileTimeout int
 	maxTools       int
+	maxGitProcs    int
 	preview        bool
 	showHelp       bool
 }
@@ -127,6 +128,7 @@ func parseReviewFlags(args []string) (reviewOptions, error) {
 	a.StringVar(&opts.audience, "audience", "human", "output audience: human (show progress) or agent (summary only)")
 	a.StringVarP(&opts.background, "background", "b", "", "optional requirement/business context for the review")
 	a.IntVar(&opts.maxTools, "max-tools", 0, "max tool call rounds per file; only takes effect when greater than template default")
+	a.IntVar(&opts.maxGitProcs, "max-git-procs", 16, "max concurrent git subprocesses")
 	a.BoolVarP(&opts.preview, "preview", "p", false, "preview which files will be reviewed without running the LLM")
 
 	if err := a.Parse(args); err != nil {
@@ -161,6 +163,10 @@ func parseReviewFlags(args []string) (reviewOptions, error) {
 
 	if opts.maxTools < 0 {
 		return opts, fmt.Errorf("--max-tools must be a non-negative integer (0 means use template default)")
+	}
+
+	if opts.maxGitProcs < 0 {
+		return opts, fmt.Errorf("--max-git-procs must be a non-negative integer (0 means use default 16)")
 	}
 
 	return opts, nil
@@ -201,6 +207,7 @@ Flags:
   -c, --commit string     single commit hash or tag to review (vs its parent)
   -f, --format string     output format: text or json (default "text")
   --concurrency int       max concurrent file reviews (default 8)
+  --max-git-procs int     max concurrent git subprocesses (default 16)
   --from string           source ref to start diff from (e.g., 'main')
   --max-tools int         max tool call rounds per file; only takes effect when greater than template default
   -p, --preview           preview which files will be reviewed without running the LLM

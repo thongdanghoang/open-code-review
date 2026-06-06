@@ -15,6 +15,7 @@ import (
 	"github.com/open-code-review/open-code-review/internal/config/template"
 	"github.com/open-code-review/open-code-review/internal/config/toolsconfig"
 	"github.com/open-code-review/open-code-review/internal/diff"
+	"github.com/open-code-review/open-code-review/internal/gitcmd"
 	"github.com/open-code-review/open-code-review/internal/llm"
 	"github.com/open-code-review/open-code-review/internal/model"
 	"github.com/open-code-review/open-code-review/internal/session"
@@ -110,6 +111,10 @@ type Args struct {
 	// Model is the user-configured model name used as fallback when
 	// template phases (plan/memory_compression) don't specify one.
 	Model string
+
+	// GitRunner limits the total number of concurrent git subprocesses.
+	// When nil, subprocesses are spawned without a global limit.
+	GitRunner *gitcmd.Runner
 
 	// Session is an optional session history instance for collecting conversation records.
 	// When nil, a default one is created automatically with git branch auto-detected from repoDir.
@@ -252,7 +257,7 @@ func New(args Args) *Agent {
 func (a *Agent) Run(ctx context.Context) ([]model.LlmComment, error) {
 	// Step 1: Parse diffs
 	ctx, diffSpan := telemetry.StartSpan(ctx, "diff.parse")
-	if err := a.loadDiffs(); err != nil {
+	if err := a.loadDiffs(ctx); err != nil {
 		diffSpan.End()
 		return nil, fmt.Errorf("load diffs: %w", err)
 	}
@@ -359,19 +364,19 @@ func (a *Agent) recordWarning(warningType, file, message string) {
 }
 
 // loadDiffs populates the diff-related fields.
-func (a *Agent) loadDiffs() error {
+func (a *Agent) loadDiffs(ctx context.Context) error {
 	var provider *diff.Provider
 
 	switch {
 	case a.args.Commit != "":
-		provider = diff.NewCommitProvider(a.args.RepoDir, a.args.Commit)
+		provider = diff.NewCommitProvider(a.args.RepoDir, a.args.Commit, a.args.GitRunner)
 	case a.args.From != "" && a.args.To != "":
-		provider = diff.NewProvider(a.args.RepoDir, a.args.From, a.args.To)
+		provider = diff.NewProvider(a.args.RepoDir, a.args.From, a.args.To, a.args.GitRunner)
 	default:
-		provider = diff.NewWorkspaceProvider(a.args.RepoDir)
+		provider = diff.NewWorkspaceProvider(a.args.RepoDir, a.args.GitRunner)
 	}
 
-	parsed, err := provider.GetDiff()
+	parsed, err := provider.GetDiff(ctx)
 	if err != nil {
 		return fmt.Errorf("get diffs: %w", err)
 	}
