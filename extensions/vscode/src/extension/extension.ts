@@ -5,6 +5,7 @@ import { ConfigService } from './services/ConfigService';
 import { GitService } from './services/GitService';
 import { CommentProvider } from './providers/CommentProvider';
 import { SidebarProvider } from './providers/SidebarProvider';
+import { ConfigPanelProvider } from './providers/ConfigPanelProvider';
 import { registerCommands } from './commands';
 
 let disposables: vscode.Disposable[] = [];
@@ -18,11 +19,13 @@ export function activate(context: vscode.ExtensionContext): void {
   const comments = new CommentProvider(extensionUri);
 
   const sidebar = new SidebarProvider(extensionUri, cli, config, git, comments);
+  const configPanel = new ConfigPanelProvider(extensionUri, cli, config, (cfg) => sidebar.pushConfig(cfg));
+  sidebar.bindConfigPanel((focus) => configPanel.open(focus));
+
   const viewReg = vscode.window.registerWebviewViewProvider(SIDEBAR_VIEW_ID, sidebar);
+  const cmdReg = registerCommands(comments, () => configPanel.open());
 
-  const cmdReg = registerCommands(comments);
-
-  disposables.push(viewReg, cmdReg, comments, output);
+  disposables.push(viewReg, cmdReg, comments, output, configPanel);
   context.subscriptions.push(...disposables);
 }
 
