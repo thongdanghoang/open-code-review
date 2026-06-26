@@ -13,10 +13,7 @@ Only the latest released version receives security updates. Users are encouraged
 
 **Please do NOT report security vulnerabilities through public GitHub issues.**
 
-Instead, use one of the following channels:
-
-1. **GitHub Private Vulnerability Reporting** — go to the [Security Advisories](https://github.com/alibaba/open-code-review/security/advisories/new) page and submit a new advisory.
-2. **Email** — send a report to **open-code-review-security@alibabacloud.com** with the details below.
+Instead, use **GitHub Private Vulnerability Reporting** — go to the [Security Advisories](https://github.com/alibaba/open-code-review/security/advisories/new) page and submit a new advisory.
 
 ### What to Include
 
