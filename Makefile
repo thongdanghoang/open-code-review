@@ -1,4 +1,4 @@
-.PHONY: build test clean run help fmt vet check \
+.PHONY: build test clean run help fmt vet check coverage \
 	build-all dist sha256sum version-info \
 	build-linux-amd64 build-linux-arm64 build-darwin-amd64 build-darwin-arm64 \
 	build-windows-amd64 build-windows-arm64
@@ -36,8 +36,20 @@ PACKAGES := $(shell $(GO) list ./... | grep -v /extensions/)
 test:
 	LC_ALL=C $(GO) test -v -race -count=1 $(PACKAGES)
 
+COVERAGE_THRESHOLD := 80
+
+coverage:
+	LC_ALL=C $(GO) test -count=1 -coverprofile=coverage.out $(PACKAGES)
+	$(GO) tool cover -func=coverage.out | grep total:
+	@COVERAGE=$$($(GO) tool cover -func=coverage.out | grep total: | awk '{print $$3}' | sed 's/%//'); \
+	if awk "BEGIN {exit !($$COVERAGE < $(COVERAGE_THRESHOLD))}"; then \
+		echo "FAIL: Coverage $${COVERAGE}% is below $(COVERAGE_THRESHOLD)% threshold"; \
+		exit 1; \
+	fi; \
+	echo "PASS: Coverage $${COVERAGE}% meets $(COVERAGE_THRESHOLD)% threshold"
+
 clean:
-	rm -rf $(DIST_DIR)
+	rm -rf $(DIST_DIR) coverage.out
 
 run: build
 	$(DIST_DIR)/$(BINARY_NAME) --staged

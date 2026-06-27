@@ -1281,7 +1281,7 @@ func TestResolveRuleEntries_PathTraversalBlocked(t *testing.T) {
 	}
 
 	entries := []ProjectRuleEntry{
-		{Path: "**/*.go", Rule: outside}, // absolute path to outside — allowed
+		{Path: "**/*.go", Rule: outside},         // absolute path to outside — allowed
 		{Path: "**/*.ts", Rule: "../outside.md"}, // relative traversal — blocked
 	}
 	resolveRuleEntries(entries, dir)
