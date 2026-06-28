@@ -1,0 +1,657 @@
+<meta charset="utf-8">
+<title>OpenCodeReview — Hướng dẫn áp dụng vào quy trình Codex</title>
+<meta name="description" content="Hướng dẫn thực chiến: dùng OpenCodeReview (ocr) làm lớp review độc lập cho code do Codex sinh ra — cài đặt, cấu hình, tích hợp Codex/CI và rule riêng cho team.">
+
+<style>
+  :root {
+    --ground: #FBFBFD;
+    --panel: #FFFFFF;
+    --ink: #14161C;
+    --muted: #5B6170;
+    --faint: #8A90A0;
+    --hair: #E4E6EC;
+    --hair-soft: #EEEFF3;
+    --accent: #4F46E5;
+    --accent-soft: #ECEBFB;
+    --add: #1A7F37;
+    --add-soft: #E6F3EB;
+    --del: #CF222E;
+    --del-soft: #FCEBEC;
+    --warn: #9A6700;
+    --warn-soft: #FBF3E0;
+    --term-bg: #16181F;
+    --term-fg: #E7E9F0;
+    --term-muted: #8E94A6;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    margin: 0;
+  }
+
+  .wrap {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 0 24px 120px;
+  }
+
+  /* ---- masthead ---- */
+  header.masthead {
+    padding: 72px 0 40px;
+    border-bottom: 1px solid var(--hair);
+  }
+  .kicker {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 18px;
+  }
+  h1 {
+    font-size: clamp(30px, 5vw, 44px);
+    line-height: 1.08;
+    letter-spacing: -0.02em;
+    font-weight: 700;
+    text-wrap: balance;
+    margin: 0 0 18px;
+  }
+  .lede {
+    font-size: 18px;
+    color: var(--muted);
+    max-width: 60ch;
+    margin: 0;
+  }
+  .lede strong { color: var(--ink); font-weight: 600; }
+
+  .meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 28px;
+  }
+  .chip {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--muted);
+    background: var(--panel);
+    border: 1px solid var(--hair);
+    border-radius: 999px;
+    padding: 5px 12px;
+  }
+  .chip b { color: var(--ink); font-weight: 600; }
+
+  /* ---- stat strip ---- */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1px;
+    background: var(--hair);
+    border: 1px solid var(--hair);
+    border-radius: 14px;
+    overflow: hidden;
+    margin: 40px 0 8px;
+  }
+  .stat {
+    background: var(--panel);
+    padding: 22px 20px;
+  }
+  .stat .num {
+    font-size: 26px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    font-variant-numeric: tabular-nums;
+  }
+  .stat .num.accent { color: var(--accent); }
+  .stat .lbl {
+    font-size: 13px;
+    color: var(--muted);
+    margin-top: 4px;
+  }
+  @media (max-width: 620px) {
+    .stats { grid-template-columns: 1fr; }
+  }
+
+  /* ---- sections ---- */
+  section { padding-top: 56px; }
+  h2 {
+    font-size: 25px;
+    letter-spacing: -0.015em;
+    font-weight: 700;
+    margin: 0 0 6px;
+    text-wrap: balance;
+  }
+  .section-eyebrow {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--faint);
+    margin: 0 0 14px;
+  }
+  h3 {
+    font-size: 17px;
+    font-weight: 650;
+    margin: 30px 0 8px;
+    letter-spacing: -0.01em;
+  }
+  p { margin: 0 0 14px; }
+  p, li { color: #2A2E38; }
+  .muted { color: var(--muted); }
+  a { color: var(--accent); text-decoration: none; border-bottom: 1px solid var(--accent-soft); }
+  a:hover { border-bottom-color: var(--accent); }
+  strong { font-weight: 650; }
+  code:not(pre code) {
+    font-family: var(--mono);
+    font-size: 0.88em;
+    background: var(--hair-soft);
+    border: 1px solid var(--hair);
+    border-radius: 5px;
+    padding: 1px 6px;
+    color: #2A2E38;
+    white-space: nowrap;
+  }
+
+  ul.clean { padding-left: 0; list-style: none; margin: 14px 0; }
+  ul.clean li {
+    padding-left: 26px;
+    position: relative;
+    margin-bottom: 10px;
+  }
+  ul.clean li::before {
+    content: "";
+    position: absolute;
+    left: 6px; top: 11px;
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+
+  /* ---- numbered steps ---- */
+  .steps { counter-reset: step; margin-top: 26px; }
+  .step {
+    display: grid;
+    grid-template-columns: 40px 1fr;
+    gap: 18px;
+    padding: 0 0 30px;
+    position: relative;
+  }
+  .step:not(:last-child)::after {
+    content: "";
+    position: absolute;
+    left: 19px; top: 40px; bottom: 6px;
+    width: 1px;
+    background: var(--hair);
+  }
+  .step .marker {
+    counter-increment: step;
+    width: 40px; height: 40px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--mono);
+    font-weight: 600;
+    font-size: 15px;
+    z-index: 1;
+  }
+  .step .marker::before { content: counter(step); }
+  .step .body h3 { margin-top: 6px; }
+
+  /* ---- terminal / code panel ---- */
+  .term {
+    background: var(--term-bg);
+    border-radius: 11px;
+    margin: 16px 0;
+    overflow: hidden;
+    border: 1px solid #23262F;
+  }
+  .term-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 14px;
+    border-bottom: 1px solid #23262F;
+  }
+  .term-bar .tlabel {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--term-muted);
+  }
+  .term pre {
+    margin: 0;
+    padding: 16px 18px;
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.7;
+    color: var(--term-fg);
+  }
+  .term pre .c { color: var(--term-muted); }      /* comment */
+  .term pre .p { color: #7C84FF; }                /* prompt / command name */
+  .term pre .g { color: #57C77F; }                /* good/added */
+  .term pre .r { color: #F2787F; }                /* removed */
+  .term pre .y { color: #E0B341; }                /* flag/string */
+
+  /* ---- callouts ---- */
+  .note {
+    border: 1px solid var(--hair);
+    border-left: 3px solid var(--accent);
+    background: var(--panel);
+    border-radius: 0 10px 10px 0;
+    padding: 16px 18px;
+    margin: 18px 0;
+  }
+  .note.warn { border-left-color: var(--warn); background: var(--warn-soft); }
+  .note.verify { border-left-color: var(--add); background: var(--add-soft); }
+  .note .tag {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    font-weight: 600;
+    margin: 0 0 6px;
+  }
+  .note.warn .tag { color: var(--warn); }
+  .note.verify .tag { color: var(--add); }
+  .note .tag.acc { color: var(--accent); }
+  .note p:last-child { margin-bottom: 0; }
+
+  /* ---- option cards ---- */
+  .opt {
+    border: 1px solid var(--hair);
+    border-radius: 12px;
+    padding: 22px 22px 8px;
+    margin: 16px 0;
+    background: var(--panel);
+  }
+  .opt .opt-head {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .opt .opt-head h3 { margin: 0; }
+  .badge {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 3px 9px;
+    border-radius: 6px;
+    font-weight: 600;
+  }
+  .badge.primary { background: var(--accent-soft); color: var(--accent); }
+  .badge.flat { background: var(--hair-soft); color: var(--muted); }
+
+  /* ---- table ---- */
+  .tbl-wrap { overflow-x: auto; margin: 16px 0; border: 1px solid var(--hair); border-radius: 10px; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { text-align: left; padding: 11px 16px; border-bottom: 1px solid var(--hair-soft); vertical-align: top; }
+  th {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    background: #FAFAFC;
+    font-weight: 600;
+  }
+  tr:last-child td { border-bottom: none; }
+  td code { white-space: nowrap; }
+
+  /* ---- verify result rows ---- */
+  .vrow { display: flex; gap: 10px; align-items: flex-start; padding: 9px 0; border-bottom: 1px solid var(--hair-soft); }
+  .vrow:last-child { border-bottom: none; }
+  .vmark { flex: 0 0 auto; font-family: var(--mono); font-size: 13px; font-weight: 700; }
+  .vmark.ok { color: var(--add); }
+  .vmark.no { color: var(--del); }
+  .vrow .vtext { font-size: 14.5px; }
+  .vrow .vtext .f { font-family: var(--mono); font-size: 0.85em; background: var(--hair-soft); padding: 1px 5px; border-radius: 4px; }
+
+  footer {
+    margin-top: 72px;
+    padding-top: 28px;
+    border-top: 1px solid var(--hair);
+    font-size: 13.5px;
+    color: var(--faint);
+  }
+  footer a { color: var(--muted); }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .opt, .note { transition: border-color .15s ease; }
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <p class="kicker">Hướng dẫn áp dụng · Bản thực chiến</p>
+    <h1>OpenCodeReview như lớp review độc lập cho code Codex sinh ra</h1>
+    <p class="lede">Bạn để Codex viết code mỗi ngày và không còn đọc từng dòng. Câu hỏi còn lại: <strong>ai review code đó?</strong> <code>ocr</code> chèn vào đúng khe hở này — một bộ review tất định, đặt đúng vị trí từng dòng, độc lập với agent đã viết ra code.</p>
+
+    <div class="meta-row">
+      <span class="chip"><b>ocr</b> v1.6.5</span>
+      <span class="chip">Đã cài &amp; chạy thử trên máy bạn</span>
+      <span class="chip">darwin/arm64</span>
+      <span class="chip">Apache-2.0 · Alibaba</span>
+    </div>
+  </header>
+
+  <div class="stats">
+    <div class="stat">
+      <div class="num accent">~1/9</div>
+      <div class="lbl">token tiêu thụ so với agent thường (cùng model)</div>
+    </div>
+    <div class="stat">
+      <div class="num">↑ Precision</div>
+      <div class="lbl">F1 &amp; độ chính xác cao hơn — ít báo sai để phải lọc</div>
+    </div>
+    <div class="stat">
+      <div class="num">↓ Recall</div>
+      <div class="lbl">cố ý: ưu tiên ít nhiễu hơn là bắt hết</div>
+    </div>
+  </div>
+  <p class="muted" style="font-size:13px; margin-top:10px;">Số liệu benchmark của dự án trên 200 PR thực, 50 repo, 10 ngôn ngữ. Điểm cần nhớ: công cụ này được tinh chỉnh cho <em>độ chính xác</em>, không phải để thay thế toàn bộ review.</p>
+
+  <!-- ===================== WHY ===================== -->
+  <section>
+    <p class="section-eyebrow">Vì sao hợp với bạn</p>
+    <h2>Khe hở trong quy trình "không tự code"</h2>
+    <p>Khi Codex sinh code, hai lựa chọn review đều có điểm yếu: tự bạn đọc từng dòng thì mất đi cái lợi của việc dùng AI; còn để chính Codex tự review thì nó thiên vị với chính sản phẩm của mình và hay cắt góc trên changeset lớn.</p>
+    <p><code>ocr</code> giải quyết bằng kiến trúc <strong>tất định × agent</strong>: những bước không được sai do code thường xử lý, phần suy luận mới giao cho LLM.</p>
+    <ul class="clean">
+      <li><strong>Chọn file tất định</strong> — quyết định chính xác file nào review, file nào lọc; không bỏ sót thay đổi quan trọng vì agent "lười".</li>
+      <li><strong>Gom file liên quan</strong> thành một đơn vị review chạy isolated, ổn định trên changeset rất lớn và review song song được.</li>
+      <li><strong>Module định vị riêng</strong> — comment bám đúng dòng, không bị "trôi" số dòng như khi bảo agent review tự do.</li>
+      <li><strong>Match rule theo loại file</strong> bằng template engine — tập trung sự chú ý của model, cắt nhiễu từ gốc.</li>
+    </ul>
+    <div class="note">
+      <p class="tag acc">Mô hình tư duy</p>
+      <p>Đừng coi <code>ocr</code> là "một agent review nữa". Coi nó là <strong>cái cổng kiểm tra (gate)</strong> chạy sau khi Codex xong việc — giống linter có não. Giá trị lớn nhất đến khi nó chạy <em>tự động</em>, không phụ thuộc bạn nhớ gọi.</p>
+    </div>
+  </section>
+
+  <!-- ===================== SETUP ===================== -->
+  <section>
+    <p class="section-eyebrow">Cài đặt · làm một lần</p>
+    <h2>Đưa <code>ocr</code> chạy được trong 3 bước</h2>
+
+    <div class="steps">
+
+      <div class="step">
+        <div class="marker"></div>
+        <div class="body">
+          <h3>Cài CLI</h3>
+          <p class="muted">Đã làm xong trên máy bạn. Đây là lệnh để cài trên máy khác / CI.</p>
+          <div class="term">
+            <div class="term-bar"><span class="tlabel">bash</span></div>
+            <pre><span class="c"># cài global, có lệnh `ocr` ở mọi nơi</span>
+npm install -g @alibaba-group/open-code-review
+ocr version   <span class="c"># → open-code-review v1.6.5</span></pre>
+          </div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="marker"></div>
+        <div class="body">
+          <h3>Cấu hình LLM (bắt buộc)</h3>
+          <p><code>ocr</code> dùng <strong>API key LLM riêng của nó</strong> — tách khỏi backend của Codex. Chọn một trong các kiểu dưới. Với công ty, kiểu C (gateway nội bộ) thường là cái bạn cần.</p>
+
+          <p style="margin-bottom:6px;"><strong>A · Anthropic / OpenAI trực tiếp</strong></p>
+          <div class="term">
+            <div class="term-bar"><span class="tlabel">bash · non-interactive</span></div>
+            <pre><span class="p">ocr config set</span> provider anthropic
+<span class="p">ocr config set</span> providers.anthropic.api_key <span class="y">sk-xxx</span>
+<span class="p">ocr config set</span> providers.anthropic.model <span class="y">claude-sonnet-4-6</span></pre>
+          </div>
+
+          <p style="margin:14px 0 6px;"><strong>B · Provider tương thích OpenAI</strong> (DeepSeek, Kimi, Qwen/DashScope, z-ai…)</p>
+          <div class="term">
+            <div class="term-bar"><span class="tlabel">bash</span></div>
+            <pre><span class="p">ocr config set</span> provider deepseek
+<span class="p">ocr config set</span> providers.deepseek.api_key <span class="y">sk-xxx</span>
+<span class="c"># xem toàn bộ provider dựng sẵn:</span>
+<span class="p">ocr llm providers</span></pre>
+          </div>
+
+          <p style="margin:14px 0 6px;"><strong>C · Gateway nội bộ công ty</strong> (private endpoint tương thích Anthropic/OpenAI)</p>
+          <div class="term">
+            <div class="term-bar"><span class="tlabel">bash · custom provider</span></div>
+            <pre><span class="p">ocr config set</span> provider company-gw
+<span class="p">ocr config set</span> custom_providers.company-gw.url <span class="y">https://llm.intra.elca/v1</span>
+<span class="p">ocr config set</span> custom_providers.company-gw.protocol <span class="y">openai</span>
+<span class="p">ocr config set</span> custom_providers.company-gw.api_key <span class="y">your-key</span>
+<span class="p">ocr config set</span> custom_providers.company-gw.model <span class="y">gpt-4o</span></pre>
+          </div>
+          <p class="muted" style="font-size:13.5px;">Config lưu ở <code>~/.opencodereview/config.json</code>. Trong CI, dùng biến môi trường (<code>OCR_LLM_URL</code>, <code>OCR_LLM_TOKEN</code>, <code>OCR_LLM_MODEL</code>, <code>OCR_USE_ANTHROPIC</code>) — ưu tiên cao nhất, không cần ghi file.</p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="marker"></div>
+        <div class="body">
+          <h3>Test kết nối &amp; chạy thử</h3>
+          <div class="term">
+            <div class="term-bar"><span class="tlabel">bash</span></div>
+            <pre><span class="p">ocr llm test</span>                <span class="c"># kiểm tra LLM thông chưa</span>
+<span class="p">ocr review</span> <span class="y">--preview</span>      <span class="c"># xem file nào sẽ được review — KHÔNG tốn token</span>
+<span class="p">ocr review</span>                  <span class="c"># review thật toàn bộ thay đổi workspace</span></pre>
+          </div>
+          <div class="note">
+            <p class="tag acc">Mẹo</p>
+            <p>Luôn dùng <code>--preview</code> trước trên repo lạ hoặc changeset lớn để biết phạm vi (và ước lượng chi phí) trước khi gọi LLM thật.</p>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ===================== SUBSCRIPTION VS API ===================== -->
+  <section>
+    <p class="section-eyebrow">Hiểu lầm phổ biến · đọc trước khi cấu hình</p>
+    <h2>Gói Claude Team/Pro <em>không</em> chạy được OCR</h2>
+    <p>Đây là chỗ gần như ai triển khai cho team cũng vướng. Tóm lại: <strong>OCR cần một API key thật sự, không "ăn ké" được subscription Claude.</strong></p>
+
+    <p>Anthropic có <strong>hai sản phẩm tách biệt</strong>, dùng hệ xác thực và hệ tính tiền khác nhau:</p>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th></th><th>Claude Team / Pro plan</th><th>Anthropic API (Console)</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Phục vụ</strong></td><td>claude.ai web + Claude Code (client chính chủ)</td><td>Gọi API từ tool bên thứ ba</td></tr>
+          <tr><td><strong>Xác thực</strong></td><td>Đăng nhập OAuth (theo ghế)</td><td>API key <code>sk-ant-…</code></td></tr>
+          <tr><td><strong>Tính tiền</strong></td><td>Cố định theo ghế/tháng</td><td>Pay-as-you-go theo token, billing riêng</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p><code>ocr</code> là một <strong>CLI Go độc lập — nó KHÔNG phải Claude Code</strong>. Nó nói chuyện thẳng với Messages API và cần một API key của Anthropic Console (hoặc provider tương thích OpenAI). Subscription Team/Pro chỉ "nuôi" được Claude Code và claude.ai — <strong>không cấp quyền truy cập API cho tool ngoài</strong>. Bao nhiêu ghế Claude Team cũng không biến thành "credit API" cho OCR.</p>
+
+    <div class="note warn">
+      <p class="tag">Đừng dùng "hack" token Claude Code</p>
+      <p>README có ghi OCR tương thích biến <code>ANTHROPIC_AUTH_TOKEN</code> của Claude Code, nên về lý thuyết có thể trích xuất OAuth token (chạy bằng subscription) rồi nhét cho OCR. <strong>Không nên</strong>: token subscription chỉ dành cho client chính chủ — dùng cho tool bên thứ ba là <strong>vi phạm điều khoản</strong>, lại ngắn hạn nên hay hết hạn, workflow dễ gãy. Không bền cho công ty.</p>
+    </div>
+
+    <h3>Vậy dùng nguồn LLM nào?</h3>
+    <p>Một trong ba nguồn "đúng là API" — đều cấu hình ở <strong>Bước 2</strong> phía trên:</p>
+    <ul class="clean">
+      <li><strong>Anthropic Console API key</strong> — đăng ký riêng tại Developer Platform, nạp credit pay-as-you-go. Đường chính chủ nếu muốn dùng model Claude (<code>claude-sonnet-4-6</code>, <code>claude-opus-4-8</code>…).</li>
+      <li><strong>Provider rẻ hơn tương thích OpenAI</strong> — DeepSeek, Qwen/DashScope, Kimi… (xem <code>ocr llm providers</code>). Chi phí biên thấp.</li>
+      <li><strong>Gateway nội bộ công ty</strong> — nếu ELCA đã có proxy LLM riêng. Thường là lựa chọn đúng nhất về bảo mật + chi phí (phần <code>custom_providers</code>).</li>
+    </ul>
+
+    <div class="note verify">
+      <p class="tag">Tin tốt về chi phí</p>
+      <p style="margin:0;">Theo benchmark, OCR tốn <strong>~1/9 token</strong> so với để agent thường review — nên một API key pay-as-you-go thường rất rẻ cho việc review hằng ngày.</p>
+    </div>
+  </section>
+
+  <!-- ===================== APPLY ===================== -->
+  <section>
+    <p class="section-eyebrow">Áp dụng vào công ty · 3 tầng</p>
+    <h2>Ba nơi để đặt lớp review này</h2>
+    <p>Xếp theo thứ tự tôi khuyên triển khai. Tầng 1 cho phản hồi tức thì khi code; tầng 2 mới là chốt chặn thật sự cho chất lượng đầu ra; tầng 3 là đòn bẩy lớn nhất về lâu dài.</p>
+
+    <div class="opt">
+      <div class="opt-head">
+        <h3>Trong Codex, mỗi ngày</h3>
+        <span class="badge primary">Bắt đầu ở đây</span>
+      </div>
+      <p>Cài plugin Codex. Sau mỗi lần Codex sinh xong một thay đổi, gọi review ngay trong cùng phiên làm việc — không phải đổi cửa sổ.</p>
+      <div class="term">
+        <div class="term-bar"><span class="tlabel">codex</span></div>
+        <pre><span class="p">codex plugin marketplace add</span> alibaba/open-code-review
+<span class="p">codex</span>
+/plugins   <span class="c"># bật "Open Code Review"</span>
+
+<span class="c"># trong thread Codex mới:</span>
+@Open Code Review review my current changes
+@Open Code Review review this branch against main
+@Open Code Review review and fix high-confidence issues</pre>
+      </div>
+      <p class="muted" style="font-size:13.5px;">Bên dưới nó chạy <code>ocr review --audience agent</code> (output gọn cho agent đọc) rồi để Codex phân loại High/Medium/Low và tự sửa các lỗi chắc chắn. <strong>Không đổi LLM backend của Codex</strong> — <code>ocr</code> vẫn dùng key đã cấu hình ở Bước 2.</p>
+    </div>
+
+    <div class="opt">
+      <div class="opt-head">
+        <h3>Chốt chặn ở CI/CD</h3>
+        <span class="badge primary">Đòn bẩy chất lượng thật sự</span>
+      </div>
+      <p>Đây mới là nơi nâng chất lượng đầu ra một cách hệ thống: mọi PR/MR đều bị review tự động, không phụ thuộc việc bạn có nhớ gọi hay không. Repo có sẵn ví dụ cho GitHub Actions và GitLab CI.</p>
+      <div class="term">
+        <div class="term-bar"><span class="tlabel">bash · lệnh lõi cho CI</span></div>
+        <pre><span class="p">ocr review</span> \
+  <span class="y">--from</span> "origin/main" \
+  <span class="y">--to</span> "$COMMIT_SHA" \
+  <span class="y">--format</span> json        <span class="c"># máy đọc được, parse trong script CI</span></pre>
+      </div>
+      <p class="muted" style="font-size:13.5px;">Dùng commit SHA cho <code>--to</code> để xử lý đúng PR từ fork. Tham khảo <code>examples/github_actions/</code> và <code>examples/gitlab_ci/</code> trong repo.</p>
+    </div>
+
+    <div class="opt">
+      <div class="opt-head">
+        <h3>Rule riêng cho team</h3>
+        <span class="badge flat">Đòn bẩy dài hạn</span>
+      </div>
+      <p>Codex không biết "luật ngầm" của codebase công ty. Rule file biến những luật đó thành kiểm tra tự động. Đặt <code>.opencodereview/rule.json</code> ở gốc repo và <strong>commit vào git</strong> để cả team dùng chung.</p>
+      <div class="term">
+        <div class="term-bar"><span class="tlabel">.opencodereview/rule.json</span></div>
+        <pre>{
+  <span class="y">"rules"</span>: [
+    {
+      <span class="y">"path"</span>: <span class="y">"**/*.java"</span>,
+      <span class="y">"rule"</span>: <span class="y">"Mọi method mới phải validate tham số bắt buộc cho null"</span>,
+      <span class="y">"merge_system_rule"</span>: true
+    },
+    {
+      <span class="y">"path"</span>: <span class="y">"**/*mapper*.xml"</span>,
+      <span class="y">"rule"</span>: <span class="y">"docs/sql-rules.md"</span>   <span class="c">// trỏ tới file .md</span>
+    }
+  ],
+  <span class="y">"exclude"</span>: [<span class="y">"**/generated/**"</span>, <span class="y">"vendor/**"</span>]
+}</pre>
+      </div>
+      <ul class="clean">
+        <li><code>merge_system_rule: true</code> → ghép rule dựng sẵn <em>cộng</em> rule của bạn. Mặc định (không có) rule của bạn <em>thay thế</em> rule hệ thống.</li>
+        <li>Trường <code>rule</code> nhận cả nội dung inline lẫn đường dẫn file <code>.md</code> — tiện cho rule dài, version-control riêng.</li>
+        <li>Kiểm tra rule nào áp cho 1 file: <code>ocr rules check &lt;path&gt;</code> hoặc <code>ocr rules check --rule custom.json &lt;path&gt;</code>.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ===================== VERIFIED ===================== -->
+  <section>
+    <p class="section-eyebrow">Tôi đã kiểm chứng trên repo này</p>
+    <h2>Những gì chạy đúng như tài liệu</h2>
+    <p>Tôi tạo vài thay đổi giả trong chính repo <code>open-code-review</code>, chạy các lệnh không tốn token, rồi dọn sạch. Kết quả:</p>
+
+    <div class="note verify">
+      <p class="tag">Chọn file — <code>ocr review --preview</code></p>
+      <div class="vrow"><span class="vmark ok">✓</span><span class="vtext"><span class="f">version.go</span> (file Go thật) → <strong>được review</strong></span></div>
+      <div class="vrow"><span class="vmark no">✕</span><span class="vtext"><span class="f">README.md</span> → loại, lý do <code>unsupported_ext</code> (markdown không review mặc định)</span></div>
+      <div class="vrow"><span class="vmark no">✕</span><span class="vtext"><span class="f">*_test.go</span> → loại, lý do <code>default_path</code> (file test bị lọc sẵn)</span></div>
+    </div>
+
+    <div class="note verify">
+      <p class="tag">Rule theo loại file — <code>ocr rules check</code></p>
+      <div class="vrow"><span class="vmark ok">✓</span><span class="vtext"><span class="f">.ts / .tsx</span> có rule riêng: React hooks, async/await, XSS, cấm <code>any</code> / <code>var</code> / <code>==</code></span></div>
+      <div class="vrow"><span class="vmark ok">✓</span><span class="vtext"><span class="f">*mapper*.xml</span> có rule SQL injection (phân biệt <code>${}</code> nguy hiểm vs <code>#{}</code> an toàn)</span></div>
+      <div class="vrow"><span class="vmark ok">✓</span><span class="vtext">Custom rule với <code>merge_system_rule:true</code> hiện đúng cả "System-Specific Rules" lẫn "User-Specific Rules"</span></div>
+    </div>
+
+    <div class="note verify">
+      <p class="tag">Quét toàn file — <code>ocr scan --preview</code></p>
+      <p style="font-size:14.5px; margin:0;">Trên <code>cmd/opencodereview/</code>: chọn đúng 14 file nguồn, loại 15 file <code>_test.go</code>, và <strong>in ước lượng token trước khi chạy</strong> — nên kiểm soát được chi phí trên repo lớn (kết hợp <code>--max-tokens-budget</code>).</p>
+    </div>
+  </section>
+
+  <!-- ===================== CHEATSHEET ===================== -->
+  <section>
+    <p class="section-eyebrow">Tham chiếu nhanh</p>
+    <h2>Cheat-sheet các lệnh hay dùng</h2>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Lệnh</th><th>Dùng để</th></tr></thead>
+        <tbody>
+          <tr><td><code>ocr review</code></td><td>Review thay đổi workspace (staged + unstaged + untracked)</td></tr>
+          <tr><td><code>ocr review --from main --to feat</code></td><td>Review diff giữa hai nhánh / ref</td></tr>
+          <tr><td><code>ocr review -c &lt;sha&gt;</code></td><td>Review một commit đơn lẻ</td></tr>
+          <tr><td><code>ocr review --preview</code></td><td>Xem trước file nào sẽ review — không gọi LLM</td></tr>
+          <tr><td><code>ocr review -b "ngữ cảnh"</code></td><td>Cung cấp ngữ cảnh nghiệp vụ → review trúng hơn</td></tr>
+          <tr><td><code>ocr review --format json</code></td><td>Output máy đọc được cho CI</td></tr>
+          <tr><td><code>ocr scan --path &lt;dir&gt;</code></td><td>Quét toàn bộ file (không cần diff) — audit codebase lạ</td></tr>
+          <tr><td><code>ocr scan --max-tokens-budget 500000</code></td><td>Quét nhưng chặn trần chi phí token</td></tr>
+          <tr><td><code>ocr rules check &lt;file&gt;</code></td><td>Xem rule nào áp cho một đường dẫn file</td></tr>
+          <tr><td><code>ocr viewer</code></td><td>Mở WebUI xem lại lịch sử phiên review</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ===================== CAVEATS ===================== -->
+  <section>
+    <p class="section-eyebrow">Cần biết trước khi tin tưởng</p>
+    <h2>Giới hạn — nói thẳng</h2>
+    <div class="note warn">
+      <p class="tag">Recall thấp là chủ ý</p>
+      <p>Công cụ này bắt lỗi <em>chắc-chắn-đúng</em>, không bắt hết. Đừng coi nó là lưới an toàn duy nhất. Việc bạn hoàn toàn không đọc code nữa vẫn là rủi ro — <code>ocr</code> <strong>giảm</strong> rủi ro đó chứ không xóa bỏ. Logic nghiệp vụ sai mà cú pháp đúng thì bộ review nào cũng dễ bỏ qua.</p>
+    </div>
+    <div class="note warn">
+      <p class="tag">Cần key LLM riêng &amp; tốn chi phí</p>
+      <p><code>ocr</code> không "ăn ké" backend của Codex — bạn trả tiền token riêng cho nó. Tin tốt: theo benchmark nó tốn ~1/9 token so với để agent thường review, nên chi phí biên thấp. Vẫn nên đặt <code>--max-tokens-budget</code> khi <code>scan</code> repo lớn.</p>
+    </div>
+    <div class="note warn">
+      <p class="tag">Markdown / file không hỗ trợ bị bỏ qua</p>
+      <p>Mặc định chỉ review các đuôi file lập trình được hỗ trợ; tài liệu, file test bị lọc. Cần review chúng thì cấu hình <code>include</code> trong rule file để bypass bộ lọc mặc định.</p>
+    </div>
+  </section>
+
+  <!-- ===================== ROLLOUT ===================== -->
+  <section>
+    <p class="section-eyebrow">Đề xuất triển khai</p>
+    <h2>Lộ trình áp dụng cho team của bạn</h2>
+    <ul class="clean">
+      <li><strong>Tuần 1 — cá nhân.</strong> Cài plugin Codex, dùng <code>@Open Code Review</code> sau mỗi thay đổi Codex sinh ra. Cảm nhận chất lượng comment trên codebase thật của bạn.</li>
+      <li><strong>Tuần 2 — rule team.</strong> Viết <code>.opencodereview/rule.json</code> đầu tiên với 3–5 luật ngầm quan trọng nhất của dự án, commit vào repo. Dùng <code>ocr rules check</code> để verify rule match đúng file.</li>
+      <li><strong>Tuần 3 — cổng CI.</strong> Thêm <code>ocr review --from origin/main --to &lt;sha&gt; --format json</code> vào pipeline ở chế độ cảnh báo (không block merge). Quan sát tỉ lệ báo đúng/sai trong 1–2 tuần.</li>
+      <li><strong>Sau đó — siết dần.</strong> Khi đã tin precision, mới cân nhắc để CI fail trên lỗi High. Tinh chỉnh rule liên tục dựa trên false positive thực tế.</li>
+    </ul>
+  </section>
+
+  <footer>
+    <p>Tài liệu này do mình soạn sau khi cài <code>ocr v1.6.5</code> và chạy thử các lệnh không tốn token trên chính repo <code>open-code-review</code>. Mọi số liệu benchmark là của dự án Alibaba. Repo &amp; tài liệu gốc: <a href="https://github.com/alibaba/open-code-review">github.com/alibaba/open-code-review</a>.</p>
+  </footer>
+
+</div>
